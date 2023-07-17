@@ -28,7 +28,7 @@ pub struct Header {
 }
 
 impl Header {
-    async fn read(stream: &BytesMut) -> error::Result<Header> {
+    fn read(stream: &BytesMut) -> error::Result<Header> {
         let mut c = Cursor::new(stream);
         let msg_type = c.read_u8()?;
         let seq = c.read_u16::<BigEndian>()?;
@@ -78,17 +78,15 @@ fn read_str(c: &mut Cursor<&BytesMut>) -> error::Result<String> {
 }
 
 #[derive(Debug)]
-pub struct HeartBeatRequestMessage {
-
-}
+pub struct HeartBeatRequestMessage {}
 
 impl RequestMessage {
-    pub async fn read(stream: &BytesMut) -> error::Result<Option<RequestMessage>> {
-        let header = Header::read(stream).await?;
+    pub fn read(stream: &BytesMut) -> error::Result<Option<RequestMessage>> {
+        let header = Header::read(stream)?;
         match header.msg_type {
-            0x01 => {
-                Ok(Some(RequestMessage::Auth(AuthRequestMessage::read(header)?)))
-            }
+            0x01 => Ok(Some(RequestMessage::Auth(AuthRequestMessage::read(
+                header,
+            )?))),
             _ => {
                 tracing::error!("unknown message type: {}", header.msg_type);
                 Ok(None)
@@ -97,3 +95,53 @@ impl RequestMessage {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_read_auth_request_message() {
+        let raw_data = vec![
+            0x32, 0xB1, 0xDF, 0x00, 0x07, 0x02, 0x01, 0x31, 0x01, 0x31, 0x01, 0x31, 0x35, 0x66,
+        ];
+        let header = Header {
+            raw_data: BytesMut::from_iter(raw_data.iter()),
+            msg_type: 0x01,
+            msg_seq: 11,
+            msg_len: 12,
+            msg_crc: 0x6c6b,
+        };
+        let auth_request_message = AuthRequestMessage::read(header).unwrap();
+        assert_eq!(auth_request_message.auth_type, 1);
+        assert_eq!(auth_request_message.connect_code, "abcdefghijkl");
+        assert_eq!(auth_request_message.connect_id, "");
+    }
+
+    #[test]
+    fn test_read_unknown_message_type() {
+        let raw_data = vec![0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let header = Header {
+            raw_data: BytesMut::from_iter(raw_data.iter()),
+            msg_type: 0x02,
+            msg_seq: 0,
+            msg_len: 0,
+            msg_crc: 0,
+        };
+        let request_message = RequestMessage::read(&header.raw_data).unwrap();
+        assert!(request_message.is_none());
+    }
+
+    #[test]
+    fn test_read_auth_request_message_with_invalid_data() {
+        let raw_data = vec![0x01, 0x00, 0x01, 0x00, 0x00, 0x00];
+        let header = Header {
+            raw_data: BytesMut::from_iter(raw_data.iter()),
+            msg_type: 0x01,
+            msg_seq: 1,
+            msg_len: 0,
+            msg_crc: 0,
+        };
+        let auth_request_message = AuthRequestMessage::read(header);
+        assert!(auth_request_message.is_err());
+    }
+}

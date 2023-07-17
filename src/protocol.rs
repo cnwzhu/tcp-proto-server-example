@@ -119,6 +119,6 @@ impl<S> Stream<S, LengthDelimitedCodec> where
             return Ok(None);
         }
         let buf = buf.unwrap()?;
-        RequestMessage::read(&buf).await
+        RequestMessage::read(&buf)
     }
 }
